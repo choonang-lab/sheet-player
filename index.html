@@ -442,8 +442,10 @@ function buildFlat(song){
       flat.push({gi:gi++, n:m[0],o:m[1],d:m[2],ly:m[3]||"", key, secStartBeat:beat, atBeat:beat+melBeats, si});
       melBeats += m[2];
     });
+    const chordBeats = sec.chords.reduce((a,c)=>a+c[1],0);
     sec._melBeats=melBeats;
-    beat += melBeats;
+    sec._secLen=Math.max(melBeats, chordBeats);   // section spans whichever is longer, so every printed chord sounds
+    beat += sec._secLen;
   });
   return beat;
 }
@@ -520,7 +522,7 @@ function play(song, fromSec){
       const chordAt=[]; let cb=0;
       const lastName = sec.chords.length ? sec.chords[sec.chords.length-1][0] : null;
       sec.chords.forEach(c=>{ for(let b=0;b<c[1];b++) chordAt[cb+b]=c[0]; cb+=c[1]; });
-      const total = sec._melBeats;   // strum spans exactly the section length (the melody) — never stops early
+      const total = sec._secLen;   // strum spans the full section (max of melody / chord length) — every printed chord sounds, none dropped
       for(let base=0; base<total; base+=4){
         pat.forEach(s=>{
           const pos=base+s.p; if(pos>=total-0.01) return;
@@ -556,7 +558,7 @@ function play(song, fromSec){
   state.sched=setInterval(tick, 120);
 
   const last=song.sections[song.sections.length-1];
-  const endBeat=(last._startBeat+last._melBeats) - secStart0;
+  const endBeat=(last._startBeat+last._secLen) - secStart0;   // wait for the full last section incl. any chord tail past the melody
   state.timers.push(setTimeout(stop, (t0+endBeat*spb-ac.currentTime)*1000+400));
 }
 function highlight(gi){
