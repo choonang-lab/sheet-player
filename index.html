@@ -357,19 +357,22 @@ function flatIndexAt(si, beatAcc){
 
 /* ---------- transport ---------- */
 let state={playing:false, timers:[]};
-function play(song, fromSec){
-  audio(); ac.resume(); stop();
+function play(song, fromSec, opts){
+  opts=opts||{};
+  audio(); ac.resume(); stop(true);
   state.playing=true; $("#play").disabled=true; $("#stop").disabled=false;
   const bpm=+$("#bpm").value, spb=60/bpm;
   const t0=ac.currentTime+0.15;
   const startSec = fromSec||0;
+  const endSec = (opts.toSec!=null) ? Math.max(startSec, Math.min(opts.toSec, song.sections.length-1)) : song.sections.length-1;
   const secStart0 = song.sections[startSec]._startBeat;
   const melOn=$("#chk-melody").checked, chOn=$("#chk-chords").checked;
+  postState("playing", startSec);
 
   // --- build an event list as DATA only (no audio nodes created yet) ---
   const events=[];
   song.sections.forEach((sec,si)=>{
-    if(si<startSec) return;
+    if(si<startSec || si>endSec) return;
     const key = keyAnchorMidi(sec.key || song.key);
     const secT = t0 + (sec._startBeat - secStart0)*spb;
     if(chOn){
@@ -412,27 +415,32 @@ function play(song, fromSec){
   tick();
   state.sched=setInterval(tick, 120);
 
-  const last=song.sections[song.sections.length-1];
-  const endBeat=(last._startBeat+last._secLen) - secStart0;   // wait for the full last section incl. any chord tail past the melody
-  state.timers.push(setTimeout(stop, (t0+endBeat*spb-ac.currentTime)*1000+400));
+  const endS=song.sections[endSec];
+  const endBeat=(endS._startBeat+endS._secLen) - secStart0;   // wait for the full target range incl. any chord tail past the melody
+  const tailMs=(t0+endBeat*spb-ac.currentTime)*1000+400;
+  state.timers.push(setTimeout(()=>{
+    if(opts.loop && state.playing) play(song, fromSec, opts);  // loop the same range
+    else stop();
+  }, tailMs));
 }
 function highlight(gi){
   document.querySelectorAll(".note.on").forEach(e=>e.classList.remove("on"));
   const el=document.querySelector(`.note[data-i="${gi}"]`);
   if(el){el.classList.add("on"); el.scrollIntoView({block:"nearest",behavior:"smooth"});}
 }
-function stop(){
+function stop(silent){
   if(state.sched){ clearInterval(state.sched); state.sched=null; }
   state.timers.forEach(clearTimeout); state.timers=[]; state.playing=false;
   document.querySelectorAll(".note.on").forEach(e=>e.classList.remove("on"));
   $("#play").disabled=false; $("#stop").disabled=true;
+  if(silent!==true) postState("stopped");
 }
 
 /* ---------- wire up ---------- */
 let current=SONG;
 render(current);
 $("#play").onclick=()=>play(current,0);
-$("#stop").onclick=stop;
+$("#stop").onclick=()=>stop();
 $("#bpm").oninput=e=>$("#bpmLabel").textContent=e.target.value;
 $("#tone").onchange=e=>{ GUITAR=e.target.value; };
 $("#loadsamp").onclick=async()=>{
@@ -455,6 +463,67 @@ $("#reload").onclick=()=>{
   try{ current=JSON.parse($("#json").value); $("#err").textContent=""; stop(); render(current); }
   catch(e){ $("#err").textContent="JSON error: "+e.message; }
 };
+
+/* ---------- embed / control API (Phase 2): URL hash + postMessage ----------
+   Launch scoped to a section, e.g. an <iframe> src of
+     index.html#section=Chorus%201&bpm=70&chordsOnly=1&loop=1&autoplay=1
+   or drive it live from a parent page:
+     iframe.contentWindow.postMessage({type:"sheet-player",cmd:"play",section:"Chorus 1",bpm:70,chordsOnly:1,loop:1},"*")
+   The player posts {type:"sheet-player",event:"ready"|"playing"|"stopped",...} back to the parent. */
+function truthy(v){ return v===true||v===1||v==="1"||v==="true"; }
+function sectionIndexByName(song,name){
+  if(name==null) return -1;
+  const n=String(name).trim();
+  let i=song.sections.findIndex(s=>s.name===n);
+  if(i<0) i=song.sections.findIndex(s=>s.name.indexOf(n)>=0);   // fallback: substring
+  return i;
+}
+function targetIndex(o){
+  if(o.section!=null){ const i=sectionIndexByName(current,o.section); return i<0?0:i; }
+  if(o.index!=null && o.index!=="") return Math.max(0,Math.min(current.sections.length-1,+o.index||0));
+  return 0;
+}
+function applyConfig(o){
+  if(o.bpm!=null && o.bpm!==""){ const v=Math.max(50,Math.min(140,+o.bpm)); if(!isNaN(v)){ $("#bpm").value=v; $("#bpmLabel").textContent=v; } }
+  if(o.melody!=null)     $("#chk-melody").checked=truthy(o.melody);
+  if(o.chords!=null)     $("#chk-chords").checked=truthy(o.chords);
+  if(truthy(o.chordsOnly)){ $("#chk-melody").checked=false; $("#chk-chords").checked=true; }   // accompaniment focus
+  if(truthy(o.melodyOnly)){ $("#chk-chords").checked=false; $("#chk-melody").checked=true; }
+}
+function postState(event,si){
+  if(window.parent===window) return;
+  const sec=(si!=null && current.sections[si])?current.sections[si].name:null;
+  try{ window.parent.postMessage({type:"sheet-player",event,section:sec,index:(si==null?null:si)},"*"); }catch(e){}
+}
+function playScoped(o){
+  o=o||{}; applyConfig(o);
+  const from=targetIndex(o);
+  const opts={};
+  if(truthy(o.loop)) opts.loop=true;
+  if((o.section!=null||o.index!=null) && !truthy(o.through)){   // a specific section → play just it (optionally through o.to)
+    let to=from; if(o.to!=null){ const j=sectionIndexByName(current,o.to); if(j>=0) to=j; }
+    opts.toSec=Math.max(from,to);
+  }
+  play(current, from, opts);
+}
+window.addEventListener("message",e=>{
+  const d=e.data; if(!d||d.type!=="sheet-player"||!d.cmd) return;
+  if(d.cmd==="play") playScoped(d);
+  else if(d.cmd==="stop") stop();
+  else if(d.cmd==="config") applyConfig(d);
+});
+if(window.parent!==window){   // announce readiness (and the section list) before any autoplay
+  try{ window.parent.postMessage({type:"sheet-player",event:"ready",sections:current.sections.map(s=>s.name)},"*"); }catch(e){}
+}
+(function initFromHash(){
+  if(!location.hash) return;
+  const p=new URLSearchParams(location.hash.slice(1)), o={};
+  ["section","index","to","bpm","chordsOnly","melodyOnly","melody","chords","loop","through","autoplay"].forEach(k=>{ if(p.has(k)) o[k]=p.get(k); });
+  applyConfig(o);
+  if(o.section!=null||o.index!=null){ const si=targetIndex(o), cards=document.querySelectorAll("#book .sec"); if(cards[si]) cards[si].scrollIntoView({block:"start"}); }
+  if(truthy(o.autoplay)) playScoped(o);   // best-effort: audio may need a click first (autoplay policy)
+})();
+
 const drop=$("#drop");
 ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.borderColor="var(--accent)";}));
 ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.borderColor="";}));
