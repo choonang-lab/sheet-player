@@ -53,6 +53,8 @@
   .k{color:var(--good)}
   #secjump{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
   #secjump button{padding:4px 9px;font-size:12px}
+  body.embed .embed-hide{display:none!important}   /* embed mode (framed / #embed=1): hide authoring UI */
+  body.embed header{padding:10px 18px}
 </style>
 </head>
 <body>
@@ -80,7 +82,7 @@
       <label><input type="checkbox" id="chk-melody" checked> melody</label>
       <label><input type="checkbox" id="chk-chords" checked> chords</label>
     </div>
-    <div class="row" style="margin-top:8px">
+    <div class="row embed-hide" style="margin-top:8px">
       <label>Guitar
         <select id="tone">
           <option value="synth">Synth (modeled)</option>
@@ -99,7 +101,7 @@
     <div id="book"></div>
   </div>
 
-  <div class="card">
+  <div class="card embed-hide">
     <div class="drop" id="drop">
       Drop a sheet-music photo here to transcribe it.<br>
       <span style="font-size:12px">(Hands the image to your Claude workflow — see “How transcription works”.)</span>
@@ -512,13 +514,15 @@ window.addEventListener("message",e=>{
   else if(d.cmd==="stop") stop();
   else if(d.cmd==="config") applyConfig(d);
 });
-if(window.parent!==window){   // announce readiness (and the section list) before any autoplay
+if(window.parent!==window){   // framed => embed mode (hide authoring UI) + announce readiness before any autoplay
+  document.body.classList.add("embed");
   try{ window.parent.postMessage({type:"sheet-player",event:"ready",sections:current.sections.map(s=>s.name)},"*"); }catch(e){}
 }
 (function initFromHash(){
   if(!location.hash) return;
   const p=new URLSearchParams(location.hash.slice(1)), o={};
-  ["section","index","to","bpm","chordsOnly","melodyOnly","melody","chords","loop","through","autoplay"].forEach(k=>{ if(p.has(k)) o[k]=p.get(k); });
+  ["section","index","to","bpm","chordsOnly","melodyOnly","melody","chords","loop","through","autoplay","embed"].forEach(k=>{ if(p.has(k)) o[k]=p.get(k); });
+  if(truthy(o.embed)) document.body.classList.add("embed");
   applyConfig(o);
   if(o.section!=null||o.index!=null){
     const si=targetIndex(o), cards=document.querySelectorAll("#book .sec");
