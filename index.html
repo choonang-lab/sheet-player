@@ -520,7 +520,12 @@ if(window.parent!==window){   // announce readiness (and the section list) befor
   const p=new URLSearchParams(location.hash.slice(1)), o={};
   ["section","index","to","bpm","chordsOnly","melodyOnly","melody","chords","loop","through","autoplay"].forEach(k=>{ if(p.has(k)) o[k]=p.get(k); });
   applyConfig(o);
-  if(o.section!=null||o.index!=null){ const si=targetIndex(o), cards=document.querySelectorAll("#book .sec"); if(cards[si]) cards[si].scrollIntoView({block:"start"}); }
+  if(o.section!=null||o.index!=null){
+    const si=targetIndex(o), cards=document.querySelectorAll("#book .sec");
+    if(cards[si]) cards[si].scrollIntoView({block:"start"});
+    $("#play").onclick=()=>playScoped(o);   // in-iframe Play replays the launch scope (a real tap => audio allowed)
+    $("#play").textContent="▶ Play section";
+  }
   if(truthy(o.autoplay)) playScoped(o);   // best-effort: audio may need a click first (autoplay policy)
 })();
 
