@@ -1,0 +1,10 @@
+# downloaded sample binaries (get them from the free pack — see README)
+samples/
+
+# generated standalone build (run bake.py to (re)create)
+sheet-player-standalone.html
+
+# os / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
