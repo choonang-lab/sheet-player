@@ -19,7 +19,10 @@ Matches the user's other single-file vanilla-JS PWAs (no build step, no framewor
 - **The preview panel does NOT route audio to speakers** — open `localhost:8127` in a real browser to hear it.
 
 ## Architecture
-- One self-contained `index.html`. **No CDN, no external fetch, no framework.** Raw Web Audio API.
+- **Three files, no build:** `index.html` (thin shell) loads `ruyan-song.js` (shared data: song + strum + chord shapes) then `player.js` (the engine as a mountable module `window.SheetPlayer`), and calls `SheetPlayer.mount(el, {hash:true})`. **No CDN, no framework.** Raw Web Audio API.
+- **`player.js` is the whole engine** — audio, look-ahead scheduler, strum, render, chord popover, and the control API — wrapped in an IIFE. All its CSS is scoped under a `.sp` root class so it can be embedded inline in another app without style collisions. `SheetPlayer` API: `mount(container,{embed,hash})`, `play({section,to,bpm,chordsOnly,loop,autoplay,…})`, `stop()`, `config()`, `onState(cb)`, `unmount()`.
+- The Mastery Path app (choonang-lab/Ru-Yan-Guitar) embeds this **inline** via `SheetPlayer.mount` (no iframe), sharing the same `ruyan-song.js` + `player.js`.
+- NOTE: `bake.py` predates the module split — it inlines `index.html` only; to make a true standalone it must now also inline `player.js` + `ruyan-song.js` (update pending; baking is optional).
 - **Data model** — `SONG.sections[]`, each: `{name, key?, chords:[[name,beats],…], strum?, mel:[[degree,octave,beats,"lyric"],…]}`.
   - Note = `[jianpu 1–7 (0=rest), octaveOffset (+up/−down), beats, "lyric"]`. Chord = `[name, beats]`.
   - Melodies are authored once as templates, then **reused via a `rely(mel, lyricString)` helper** that
